@@ -1,0 +1,101 @@
+# This file contains the fastlane.tools configuration
+# You can find the documentation at https://docs.fastlane.tools
+#
+# For a list of all available actions, check out
+#
+#     https://docs.fastlane.tools/actions
+#
+
+# Uncomment the line if you want fastlane to automatically update itself
+# update_fastlane
+
+default_platform(:android)
+
+platform :android do
+
+  before_all do |lane, options|
+    git_pull
+
+    # Setup the slack URL webhook
+    ENV["SLACK_URL"] = "replace your own slack url"
+
+    # clean
+    clean
+  end
+
+  after_all do |lane, options|
+    clean
+    slackMessage = "Successfully upload a new archive to HockeyApp."
+    slack(message: slackMessage)
+  end
+
+  error do |lane, exception, options|
+    slack(message: exception, success: false)
+    exit true
+  end
+
+  desc "build a beta version"
+  lane :deploy_beta do |options|
+    build(type: "debug", version: options[:version], build: options[:build])
+  end
+
+  desc "build a prod version"
+  lane :deploy_prod do |options|
+    build(type: "release", version: options[:version], build: options[:build])
+  end
+
+  desc "build a beta version"
+  lane :build do |options|
+    BUILD_TYPE = options[:type]
+    BUILD_VERSION_CODE = options[:version]
+    BUILD_VERSION_NAME = options[:build]
+
+    bundle
+    gradle(task: "clean")
+    gradle(
+      task: "assemble",
+      build_type: BUILD_TYPE,
+      properties: {
+        "versionCode" => BUILD_VERSION_CODE,
+        "versionName" => BUILD_VERSION_NAME,
+      }
+    )
+    upload(type: BUILD_TYPE)
+  end
+
+  desc "generate js bundle"
+  lane :bundle do
+    # make an assets folder js bunder
+    sh "mkdir ../app/src/main/assets"
+
+    # generate bundle.js
+    Dir.chdir("../..") do
+      sh "React-native bundle --entry-file index.android.js --bundle-output ./android/app/src/main/assets/index.android.jsbundle --platform android --assets-dest ./android/app/src/main/res/ --dev false"
+    end
+  end
+
+  desc "upload to hockey app"
+  lane :upload do |options|
+    BUILD_STAGE = options[:type]
+    BUILD_NUMBER = number_of_commits
+    # BUILD_NUMBER = options[:version] + "-" + options[:build]
+    BUILD_NOTE = last_git_commit[:message]
+
+    Dir.chdir("..") do
+      sh "sh ./fastlane/build-upload-apk.sh #{BUILD_STAGE} #{BUILD_NUMBER} #{BUILD_NOTE}"
+    end
+
+  end
+
+  desc "clean"
+  lane :clean do
+    sh "rm -rf ../app/src/main/assets"
+    sh "rm -rf ../app/build"
+    # sh "rm -rf ../app/src/main/res/drawable-mdpi"
+    # sh "rm -rf ../app/src/main/res/drawable-hdpi"
+    # sh "rm -rf ../app/src/main/res/drawable-xhdpi"
+    # sh "rm -rf ../app/src/main/res/drawable-xxhdpi"
+    # sh "rm -rf ../app/src/main/res/drawable-xxxhdpi"
+  end
+
+end
